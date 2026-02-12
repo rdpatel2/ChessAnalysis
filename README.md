@@ -1,4 +1,4 @@
-Only the backend is completed so far, although not all functionality it finished, and the chessAPI is a little finicky
+Backend Chess Engine
 </br>
 To run it clone the repo
 </br>
