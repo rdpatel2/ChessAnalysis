@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+pymongo
+python-chess
+PyJWT
+passlib[bcrypt]
+python-dotenv
+requests
+pytest
+httpx
+fastapi\nuvicorn
