@@ -1,0 +1,248 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+  --bg-color: #0f172a;
+  --text-main: #f8fafc;
+  --text-muted: #94a3b8;
+  --accent: #3b82f6;
+  --accent-hover: #2563eb;
+  --glass-bg: rgba(30, 41, 59, 0.7);
+  --glass-border: rgba(255, 255, 255, 0.1);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background-color: var(--bg-color);
+  color: var(--text-main);
+  background-image: radial-gradient(circle at top right, #1e293b 0%, #0f172a 100%);
+  background-attachment: fixed;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.container {
+  height: 100vh;
+  margin: 0 auto;
+  padding: 2vh;
+  width: 100%;
+}
+
+.glass-panel {
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  max-height: 96vh;
+}
+
+h1, h2, h3 {
+  margin-top: 0;
+}
+
+.header-title {
+  background: linear-gradient(135deg, #60a5fa, #3b82f6);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-size: 2.5rem;
+  margin-bottom: 1rem;
+  text-align: center;
+}
+
+.btn {
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 12px 24px;
+  font-weight: 600;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.btn:hover {
+  background: var(--accent-hover);
+  transform: translateY(-2px);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.input {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid var(--glass-border);
+  color: var(--text-main);
+  padding: 12px 16px;
+  border-radius: 8px;
+  outline: none;
+  font-size: 16px;
+  width: 100%;
+  transition: border-color 0.2s;
+}
+
+.input:focus {
+  border-color: var(--accent);
+}
+
+.game-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 1.5rem;
+}
+
+.game-card {
+  background: rgba(30, 41, 59, 0.4);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  padding: 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.game-card:hover {
+  background: rgba(30, 41, 59, 0.8);
+  border-color: var(--accent);
+  transform: translateX(4px);
+}
+
+.game-info h3 {
+  margin: 0 0 4px 0;
+  font-size: 1.1rem;
+}
+
+.game-meta {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.badge {
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  background: rgba(255,255,255,0.1);
+}
+
+.badge.win { background: rgba(34, 197, 94, 0.2); color: #4ade80; }
+.badge.loss { background: rgba(239, 68, 68, 0.2); color: #f87171; }
+.badge.draw { background: rgba(168, 162, 158, 0.2); color: #d6d3d1; }
+
+.analyzer-layout {
+  display: grid;
+  grid-template-columns: 65vh 1fr;
+  gap: 24px;
+  margin-top: 1vh;
+  flex: 1;
+  min-height: 0;
+}
+
+.board-container {
+  width: 65vh; /* Size the board based on viewport height */
+  display: flex;
+  flex-direction: column;
+}
+
+.controls {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.controls-header {
+  margin-bottom: 16px;
+}
+
+.move-history {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  background: rgba(15, 23, 42, 0.4);
+  border-radius: 8px;
+  padding: 12px;
+  border: 1px solid var(--glass-border);
+}
+
+.move-row {
+  display: flex;
+  padding: 8px;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+
+.move-num {
+  width: 40px;
+  color: var(--text-muted);
+}
+
+.move-san {
+  flex: 1;
+  cursor: pointer;
+}
+
+.move-san.active {
+  color: var(--accent);
+  font-weight: bold;
+}
+
+.evaluation-panel {
+  margin-top: 16px;
+  padding: 16px;
+  background: rgba(15, 23, 42, 0.6);
+  border-radius: 8px;
+  border: 1px solid var(--glass-border);
+}
+
+.eval-score {
+  font-size: 2rem;
+  font-weight: bold;
+  margin-bottom: 8px;
+}
+
+.eval-details {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.nav-buttons {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.nav-buttons .btn {
+  flex: 1;
+}
+
+@media (max-width: 768px) {
+  .analyzer-layout {
+    grid-template-columns: 1fr;
+  }
+}
