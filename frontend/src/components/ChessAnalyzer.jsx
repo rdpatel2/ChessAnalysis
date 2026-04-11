@@ -4,6 +4,8 @@ import { Chess } from 'chess.js';
 import { ChevronLeft, ChevronRight, ArrowLeft, Loader2, Info } from 'lucide-react';
 
 export default function ChessAnalyzer({ game, username, onBack }) {
+  const VISIBLE_MOVE_ROWS = 10;
+
   const [currentMoveIndex, setCurrentMoveIndex] = useState(0);
   const [analysis, setAnalysis] = useState(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -43,12 +45,14 @@ export default function ChessAnalyzer({ game, username, onBack }) {
   }, [game.moves, userIsWhite]);
 
   const currentState = moveHistory[currentMoveIndex];
-  const nextState = currentMoveIndex < moveHistory.length - 1 ? moveHistory[currentMoveIndex + 1] : null;
   const isCurrentlyUserTurn = currentState.isUserTurn;
+  const hasUserMoveToReview = currentMoveIndex > 0 && !isCurrentlyUserTurn;
+  const reviewStartState = hasUserMoveToReview ? moveHistory[currentMoveIndex - 1] : null;
+  const reviewedMove = hasUserMoveToReview ? moveHistory[currentMoveIndex] : null;
 
   const analyzePosition = useCallback(async () => {
-    // Only analyze if it's the user's turn
-    if (!isCurrentlyUserTurn) {
+    // Analyze the position before a user move, then compare with the move that was played.
+    if (!hasUserMoveToReview || !reviewStartState) {
       setAnalysis(null);
       return;
     }
@@ -60,7 +64,7 @@ export default function ChessAnalyzer({ game, username, onBack }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          fen: currentState.fen,
+          fen: reviewStartState.fen,
           user_color: userColor
         })
       });
@@ -73,7 +77,7 @@ export default function ChessAnalyzer({ game, username, onBack }) {
     } finally {
       setIsAnalyzing(false);
     }
-  }, [currentState.fen, isCurrentlyUserTurn, userColor]);
+  }, [hasUserMoveToReview, reviewStartState, userColor]);
 
   // Re-run analysis when stepping to a new position if it's user's turn
   useEffect(() => {
@@ -94,9 +98,9 @@ export default function ChessAnalyzer({ game, username, onBack }) {
       }
     }
 
-    // Highlight optimal move if analyzed (Green)
-    if (analysis && analysis.optimal_san) {
-      const tempChess = new Chess(currentState.fen);
+    // Highlight optimal move from the reviewed decision point (Green)
+    if (analysis && analysis.optimal_san && reviewStartState) {
+      const tempChess = new Chess(reviewStartState.fen);
       try {
         const move = tempChess.move(analysis.optimal_san);
         if (move) {
@@ -111,7 +115,7 @@ export default function ChessAnalyzer({ game, username, onBack }) {
 
     setCustomArrows(arrows);
     setCustomSquareStyles(styles);
-  }, [currentMoveIndex, moveHistory, analysis, currentState.fen]);
+  }, [currentMoveIndex, moveHistory, analysis, reviewStartState]);
 
   const handleNext = () => {
     if (currentMoveIndex < moveHistory.length - 1) setCurrentMoveIndex(c => c + 1);
@@ -127,7 +131,7 @@ export default function ChessAnalyzer({ game, username, onBack }) {
         <ArrowLeft size={16} /> Back to Games
       </button>
 
-      <div className="analyzer-layout">
+      <div className="analyzer-layout" style={{overflowY: 'scroll'}}>
         <div className="board-container">
           <Chessboard 
             position={currentState.fen} 
@@ -160,7 +164,7 @@ export default function ChessAnalyzer({ game, username, onBack }) {
                 <Loader2 className="animate-spin" size={20} color="var(--accent)" />
                 <span>Running Minimax engine...</span>
               </div>
-            ) : isCurrentlyUserTurn ? (
+            ) : hasUserMoveToReview ? (
               <>
                 <div className="eval-score">
                   {analysis?.eval !== undefined ? (analysis.eval > 0 ? `+${analysis.eval}` : analysis.eval) : '-'}
@@ -169,9 +173,7 @@ export default function ChessAnalyzer({ game, username, onBack }) {
                   {analysis?.optimal_san ? (
                     <>
                       <p>Optimal Move: <strong style={{ color: '#4ade80' }}>{analysis.optimal_san}</strong></p>
-                      {nextState && (
-                        <p>Played Move: <strong style={{ color: nextState.san === analysis.optimal_san ? '#4ade80' : '#60a5fa' }}>{nextState.san}</strong></p>
-                      )}
+                      <p>Played Move: <strong style={{ color: reviewedMove?.san === analysis.optimal_san ? '#4ade80' : '#60a5fa' }}>{reviewedMove?.san ?? '-'}</strong></p>
                     </>
                   ) : (
                     <p>Eval: {analysis?.eval ?? '-'}</p>
@@ -181,24 +183,33 @@ export default function ChessAnalyzer({ game, username, onBack }) {
             ) : (
               <div style={{ display: 'flex', gap: '8px', color: 'var(--text-muted)' }}>
                 <Info size={20} />
-                <span>Opponent's turn. Stepping...</span>
+                <span>No user move to review at this position. Step to a position after your move.</span>
               </div>
             )}
           </div>
 
           <div className="move-history">
             <h3>Moves</h3>
-            {moveHistory.map((move, i) => {
-              if (i === 0) return null; // Skip 'Start'
-              return (
-                <div key={i} className={`move-row`} onClick={() => setCurrentMoveIndex(i)}>
-                  <span className="move-num">{(i + 1) % 2 === 0 ? i/2 : Math.floor(i/2) + 1}.</span>
-                  <span className={`move-san ${currentMoveIndex === i ? 'active' : ''}`}>
-                    {move.san}
-                  </span>
-                </div>
-              );
-            })}
+            <div
+              className="move-history-list"
+              style={{ overflowY: 'auto', maxHeight: `${VISIBLE_MOVE_ROWS * 36}px` }}
+            >
+              {moveHistory.map((move, i) => {
+                if (i === 0) return null; // Skip 'Start'
+                return (
+                  <div
+                    key={i}
+                    className={`move-row`}
+                    onClick={() => setCurrentMoveIndex(i)}
+                  >
+                    <span className="move-num">{i % 2 === 1 ? `${Math.ceil(i / 2)}.` : ''}</span>
+                    <span className={`move-san ${currentMoveIndex === i ? 'active' : ''}`}>
+                      {move.san}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
       </div>

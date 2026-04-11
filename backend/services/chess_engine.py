@@ -96,6 +96,15 @@ for pt, table in PST_W.items():
         PST_B[pt].extend(table[r*8:(r+1)*8])
 
 def evaluate_board(board: chess.Board):
+    """
+    Evaluates the current weights of the board
+
+    Args:
+        board (chess.Board): _description_
+
+    Returns:
+        _type_: _description_
+    """
     if board.is_checkmate():
         return -99999 if board.turn == chess.WHITE else 99999
     if board.is_game_over(): # If it's over and NOT checkmate, it's a draw
@@ -107,10 +116,11 @@ def evaluate_board(board: chess.Board):
     endgame = queens == 0
 
     for square in chess.SQUARES:
+        # Pull the piece on the current square
         piece = board.piece_at(square)
         if piece is None:
             continue
-        
+        # Current weight depending on the piece
         val = WEIGHTS[piece.piece_type]
         
         if piece.piece_type == chess.KING:
@@ -129,6 +139,19 @@ def evaluate_board(board: chess.Board):
     return score
 
 def minimax(board: chess.Board, depth: int, alpha: float, beta: float, is_max: bool):
+    """
+    Implements a custom minimax algorithm to calculate best moves
+
+    Args:
+        board (chess.Board): _description_
+        depth (int): _description_
+        alpha (float): _description_
+        beta (float): _description_
+        is_max (bool): _description_
+
+    Returns:
+        _type_: _description_
+    """
     if depth == 0 or board.is_game_over():
         return None, evaluate_board(board)
 
@@ -164,15 +187,34 @@ def minimax(board: chess.Board, depth: int, alpha: float, beta: float, is_max: b
         return best_move, min_val
 
 def analyze_state(fen: str) -> str:
+    """
+    Analyzes the current state of the board to get best current move
+
+    Args:
+        fen (str): _description_
+
+    Returns:
+        str: _description_
+    """
     board = chess.Board(fen)
     is_white_turn = board.turn == chess.WHITE
-    best_move, _ = minimax(board, 2, float('-inf'), float('inf'), is_white_turn)
+    # Get best move to a depth of 5 moves
+    best_move, _ = minimax(board, 3, float('-inf'), float('inf'), is_white_turn)
     # Return SAN notation
     if best_move:
         return board.san(best_move)
     return ""
 
 def analyze_game_parallel(game_moves: list[str]) -> list[str]:
+    """
+    Runs game analysis concurrently as single threaded was taking much too long upward of 3 minutes
+
+    Args:
+        game_moves (list[str]): _description_
+
+    Returns:
+        list[str]: _description_
+    """
     board = chess.Board()
     fens = []
     
@@ -181,7 +223,7 @@ def analyze_game_parallel(game_moves: list[str]) -> list[str]:
         board.push_san(move)
         fens.append(board.fen())
 
-    # Map minimax over evaluations in parallel, drastically improving performance compared to NodeJS single thread!
+    # Map minimax over evaluations in parallel, drastically improving performance compared to single thread!
     with concurrent.futures.ProcessPoolExecutor() as executor:
         best_moves = list(executor.map(analyze_state, fens))
         

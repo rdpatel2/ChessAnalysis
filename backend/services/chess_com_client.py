@@ -4,15 +4,40 @@ import io
 import datetime
 
 def get_prev_date(year, month):
+    """
+
+    Args:
+        year (_type_): _description_
+        month (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
     if month == 1:
         return year - 1, 12
     return year, month - 1
 
 def clean_pgn(pgn):
+    """
+
+    Args:
+        pgn (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
     idx = pgn.find("1.")
     return pgn[idx:] if idx != -1 else pgn
 
 def extract_game_data(pgn_str):
+    """
+
+    Args:
+        pgn_str (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
     pgn_io = io.StringIO(pgn_str)
     try:
         game = chess.pgn.read_game(pgn_io)
@@ -40,6 +65,15 @@ def extract_game_data(pgn_str):
     }
 
 def fetch_recent_games(username, limit=10):
+    """
+
+    Args:
+        username (_type_): _description_
+        limit (int, optional): _description_. Defaults to 10.
+
+    Returns:
+        _type_: _description_
+    """
     now = datetime.datetime.now()
     year = now.year
     month = now.month

@@ -29,7 +29,7 @@ def test_fetch_and_analyze_entire_game():
         # Verify minimax evaluates successfully without crashing on the user's turn
         if is_user_turn:
             # We use depth=2 for testing to keep it fast, similar to the CLI
-            best_move, value = minimax(board, depth=2, alpha=float('-inf'), beta=float('inf'), is_max=True)
+            best_move, value = minimax(board, depth=5, alpha=float('-inf'), beta=float('inf'), is_max=True)
             
             # The game isn't over yet in this loop if there are moves being played, so best_move shouldn't be None
             # unless it's checkmate, but in valid games there is always a move before checkmate.
