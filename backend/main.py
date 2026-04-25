@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import chess
 
 from services.chess_com_client import fetch_recent_games
@@ -19,6 +19,7 @@ app.add_middleware(
 class AnalyzeRequest(BaseModel):
     fen: str
     user_color: str # "white" or "black"
+    depth: int = Field(default=3, ge=1, le=20)
 
 @app.get("/api/games/{username}")
 def get_recent_games(username: str, limit: int = 10):
@@ -34,13 +35,14 @@ def get_recent_games(username: str, limit: int = 10):
 def analyze_position(req: AnalyzeRequest):
     try:
         board = chess.Board(req.fen)
-        is_user_turn = (board.turn == chess.WHITE and req.user_color == "white") or \
-                       (board.turn == chess.BLACK and req.user_color == "black")
-                       
+        user_color = req.user_color.lower()
+        is_user_turn = (board.turn == chess.WHITE and user_color == "white") or \
+                       (board.turn == chess.BLACK and user_color == "black")
+                        
         if not is_user_turn:
             return {"optimal_san": None, "eval": evaluate_board(board)}
             
-        optimal_san = analyze_state(req.fen)
+        optimal_san = analyze_state(req.fen, depth=req.depth)
         
         # Calculate evaluation after optimal move is made
         if optimal_san:
@@ -50,7 +52,7 @@ def analyze_position(req: AnalyzeRequest):
         else:
             evaluation = evaluate_board(board)
             
-        return {"optimal_san": optimal_san, "eval": evaluation}
+        return {"optimal_san": optimal_san, "eval": evaluation, "depth": req.depth}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

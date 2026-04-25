@@ -52,7 +52,7 @@ export default function Dashboard({ onSelectGame }) {
       {error && <p style={{ color: '#ef4444', marginTop: '1rem', textAlign: 'center' }}>{error}</p>}
 
       {games.length > 0 && (
-        <div className="game-list">
+        <div className="game-list" style={{overflow: 'scroll'}}>
           <h2 style={{ fontSize: '1.2rem', marginTop: '1rem' }}>Recent Games</h2>
           {games.map((game, i) => {
             const isWhite = game.white.toLowerCase() === username.toLowerCase();

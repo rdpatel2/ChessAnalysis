@@ -1,7 +1,9 @@
 import chess
-import random
 import concurrent.futures
-from functools import lru_cache
+import atexit
+import os
+import time
+from dataclasses import dataclass
 
 # Piece Square Tables (PST) adapted from Sunfish
 # https://github.com/thomasahle/sunfish/blob/master/sunfish.py
@@ -95,6 +97,20 @@ for pt, table in PST_W.items():
     for r in reversed(range(8)):
         PST_B[pt].extend(table[r*8:(r+1)*8])
 
+TT_EXACT = 0
+TT_LOWER = 1
+TT_UPPER = 2
+DEFAULT_TIME_BUDGET_MS = 750
+_GLOBAL_EXECUTOR: concurrent.futures.ProcessPoolExecutor | None = None
+
+
+@dataclass(slots=True)
+class TTEntry:
+    depth: int
+    value: int
+    flag: int
+    best_move: chess.Move | None
+
 def evaluate_board(board: chess.Board):
     """
     Evaluates the current weights of the board
@@ -138,6 +154,187 @@ def evaluate_board(board: chess.Board):
             
     return score
 
+class SearchTimeout(Exception):
+    pass
+
+
+def _board_key(board: chess.Board):
+    transposition_key = getattr(board, "transposition_key", None)
+    if callable(transposition_key):
+        return transposition_key()
+
+    private_key = getattr(board, "_transposition_key", None)
+    if callable(private_key):
+        return private_key()
+    if private_key is not None:
+        return private_key
+
+    # Fallback for compatibility when no zobrist key API is available.
+    return (
+        board.board_fen(),
+        board.turn,
+        board.castling_rights,
+        board.ep_square,
+    )
+
+
+def _move_history_key(move: chess.Move):
+    return move.from_square, move.to_square, move.promotion
+
+
+def _score_move(
+    board: chess.Board,
+    move: chess.Move,
+    tt_move: chess.Move | None,
+    killers: dict[int, tuple[chess.Move, ...]],
+    history: dict[tuple[int, int, int | None], int],
+    depth: int,
+):
+    if tt_move and move == tt_move:
+        return 1_000_000_000
+
+    score = history.get(_move_history_key(move), 0)
+
+    if board.is_capture(move):
+        captured_piece_type = chess.PAWN if board.is_en_passant(move) else board.piece_type_at(move.to_square)
+        attacker_piece_type = board.piece_type_at(move.from_square)
+        if captured_piece_type is not None and attacker_piece_type is not None:
+            score += 100_000 + (10 * WEIGHTS[captured_piece_type] - WEIGHTS[attacker_piece_type])
+
+    if move.promotion:
+        score += 50_000 + WEIGHTS[move.promotion]
+
+    killer_moves = killers.get(depth, ())
+    if move in killer_moves:
+        score += 25_000
+
+    if board.gives_check(move):
+        score += 12_000
+
+    return score
+
+
+def _order_moves(
+    board: chess.Board,
+    moves: list[chess.Move],
+    tt_move: chess.Move | None,
+    killers: dict[int, tuple[chess.Move, ...]],
+    history: dict[tuple[int, int, int | None], int],
+    depth: int,
+):
+    return sorted(
+        moves,
+        key=lambda move: _score_move(board, move, tt_move, killers, history, depth),
+        reverse=True,
+    )
+
+
+def _record_killer(depth: int, move: chess.Move, killers: dict[int, tuple[chess.Move, ...]]):
+    current = killers.get(depth, ())
+    if move in current:
+        return
+    if len(current) == 0:
+        killers[depth] = (move,)
+    elif len(current) == 1:
+        killers[depth] = (move, current[0])
+    else:
+        killers[depth] = (move, current[0])
+
+
+def _record_history(move: chess.Move, depth: int, history: dict[tuple[int, int, int | None], int]):
+    key = _move_history_key(move)
+    history[key] = history.get(key, 0) + depth * depth
+
+
+def _search(
+    board: chess.Board,
+    depth: int,
+    alpha: float,
+    beta: float,
+    is_max: bool,
+    deadline: float,
+    tt: dict[tuple[object, bool], TTEntry],
+    killers: dict[int, tuple[chess.Move, ...]],
+    history: dict[tuple[int, int, int | None], int],
+):
+    if time.perf_counter() >= deadline:
+        raise SearchTimeout()
+
+    if depth == 0 or board.is_game_over():
+        return None, evaluate_board(board)
+
+    key = (_board_key(board), is_max)
+    original_alpha = alpha
+    original_beta = beta
+    entry = tt.get(key)
+    tt_move = None
+    if entry and entry.best_move:
+        tt_move = entry.best_move
+    if entry and entry.depth >= depth:
+        if entry.flag == TT_EXACT:
+            return entry.best_move, entry.value
+        if entry.flag == TT_LOWER:
+            alpha = max(alpha, entry.value)
+        elif entry.flag == TT_UPPER:
+            beta = min(beta, entry.value)
+        if alpha >= beta:
+            return entry.best_move, entry.value
+
+    moves = _order_moves(board, list(board.legal_moves), tt_move, killers, history, depth)
+    if not moves:
+        return None, evaluate_board(board)
+
+    best_move = None
+    if is_max:
+        best_value = float("-inf")
+        for move in moves:
+            board.push(move)
+            try:
+                _, value = _search(board, depth - 1, alpha, beta, False, deadline, tt, killers, history)
+            finally:
+                board.pop()
+
+            if value > best_value:
+                best_value = value
+                best_move = move
+
+            if value > alpha:
+                alpha = value
+            if alpha >= beta:
+                _record_killer(depth, move, killers)
+                _record_history(move, depth, history)
+                break
+    else:
+        best_value = float("inf")
+        for move in moves:
+            board.push(move)
+            try:
+                _, value = _search(board, depth - 1, alpha, beta, True, deadline, tt, killers, history)
+            finally:
+                board.pop()
+
+            if value < best_value:
+                best_value = value
+                best_move = move
+
+            if value < beta:
+                beta = value
+            if alpha >= beta:
+                _record_killer(depth, move, killers)
+                _record_history(move, depth, history)
+                break
+
+    if best_value <= original_alpha:
+        flag = TT_UPPER
+    elif best_value >= original_beta:
+        flag = TT_LOWER
+    else:
+        flag = TT_EXACT
+    tt[key] = TTEntry(depth=depth, value=int(best_value), flag=flag, best_move=best_move)
+
+    return best_move, best_value
+
+
 def minimax(board: chess.Board, depth: int, alpha: float, beta: float, is_max: bool):
     """
     Implements a custom minimax algorithm to calculate best moves
@@ -152,41 +349,59 @@ def minimax(board: chess.Board, depth: int, alpha: float, beta: float, is_max: b
     Returns:
         _type_: _description_
     """
-    if depth == 0 or board.is_game_over():
-        return None, evaluate_board(board)
+    tt: dict[tuple[object, bool], TTEntry] = {}
+    killers: dict[int, tuple[chess.Move, ...]] = {}
+    history: dict[tuple[int, int, int | None], int] = {}
+    deadline = time.perf_counter() + 3600
+    return _search(board, depth, alpha, beta, is_max, deadline, tt, killers, history)
 
-    moves = list(board.legal_moves)
-    random.shuffle(moves)
+
+def _iterative_deepening(
+    board: chess.Board,
+    max_depth: int,
+    is_max: bool,
+    max_time_ms: int,
+):
+    if board.is_game_over():
+        return None, evaluate_board(board), 0
+
+    if max_time_ms <= 0:
+        max_time_ms = DEFAULT_TIME_BUDGET_MS
+
+    deadline = time.perf_counter() + (max_time_ms / 1000.0)
+    tt: dict[tuple[object, bool], TTEntry] = {}
+    killers: dict[int, tuple[chess.Move, ...]] = {}
+    history: dict[tuple[int, int, int | None], int] = {}
 
     best_move = None
-    if is_max:
-        max_val = float('-inf')
-        for move in moves:
-            board.push(move)
-            _, val = minimax(board, depth - 1, alpha, beta, False)
-            board.pop()
-            if val > max_val:
-                max_val = val
-                best_move = move
-            alpha = max(alpha, val)
-            if alpha >= beta:
-                break
-        return best_move, max_val
-    else:
-        min_val = float('inf')
-        for move in moves:
-            board.push(move)
-            _, val = minimax(board, depth - 1, alpha, beta, True)
-            board.pop()
-            if val < min_val:
-                min_val = val
-                best_move = move
-            beta = min(beta, val)
-            if alpha >= beta:
-                break
-        return best_move, min_val
+    best_eval = evaluate_board(board)
+    completed_depth = 0
 
-def analyze_state(fen: str) -> str:
+    for current_depth in range(1, max_depth + 1):
+        try:
+            move, value = _search(
+                board,
+                current_depth,
+                float("-inf"),
+                float("inf"),
+                is_max,
+                deadline,
+                tt,
+                killers,
+                history,
+            )
+        except SearchTimeout:
+            break
+
+        if move is not None:
+            best_move = move
+            best_eval = value
+            completed_depth = current_depth
+
+    return best_move, best_eval, completed_depth
+
+
+def analyze_state(fen: str, depth: int = 3, max_time_ms: int = DEFAULT_TIME_BUDGET_MS) -> str:
     """
     Analyzes the current state of the board to get best current move
 
@@ -196,16 +411,48 @@ def analyze_state(fen: str) -> str:
     Returns:
         str: _description_
     """
-    board = chess.Board(fen)
-    is_white_turn = board.turn == chess.WHITE
-    # Get best move to a depth of 5 moves
-    best_move, _ = minimax(board, 3, float('-inf'), float('inf'), is_white_turn)
+    root_board = chess.Board(fen)
+    search_board = root_board.copy(stack=False)
+    is_white_turn = search_board.turn == chess.WHITE
+    best_move, _, _ = _iterative_deepening(
+        board=search_board,
+        max_depth=max(1, depth),
+        is_max=is_white_turn,
+        max_time_ms=max_time_ms,
+    )
     # Return SAN notation
     if best_move:
-        return board.san(best_move)
+        return root_board.san(best_move)
     return ""
 
-def analyze_game_parallel(game_moves: list[str]) -> list[str]:
+
+def _analyze_state_worker(args: tuple[str, int, int]):
+    fen, depth, max_time_ms = args
+    return analyze_state(fen=fen, depth=depth, max_time_ms=max_time_ms)
+
+
+def _get_executor():
+    global _GLOBAL_EXECUTOR
+    if _GLOBAL_EXECUTOR is None:
+        cpu_count = os.cpu_count() or 2
+        _GLOBAL_EXECUTOR = concurrent.futures.ProcessPoolExecutor(max_workers=max(1, cpu_count - 1))
+    return _GLOBAL_EXECUTOR
+
+
+def _shutdown_executor():
+    global _GLOBAL_EXECUTOR
+    if _GLOBAL_EXECUTOR is not None:
+        _GLOBAL_EXECUTOR.shutdown(wait=False, cancel_futures=True)
+        _GLOBAL_EXECUTOR = None
+
+
+atexit.register(_shutdown_executor)
+
+def analyze_game_parallel(
+    game_moves: list[str],
+    depth: int = 3,
+    max_time_ms: int = DEFAULT_TIME_BUDGET_MS,
+) -> list[str]:
     """
     Runs game analysis concurrently as single threaded was taking much too long upward of 3 minutes
 
@@ -223,8 +470,9 @@ def analyze_game_parallel(game_moves: list[str]) -> list[str]:
         board.push_san(move)
         fens.append(board.fen())
 
-    # Map minimax over evaluations in parallel, drastically improving performance compared to single thread!
-    with concurrent.futures.ProcessPoolExecutor() as executor:
-        best_moves = list(executor.map(analyze_state, fens))
-        
-    return best_moves
+    if len(fens) <= 2:
+        return [analyze_state(fen, depth=depth, max_time_ms=max_time_ms) for fen in fens]
+
+    tasks = [(fen, depth, max_time_ms) for fen in fens]
+    executor = _get_executor()
+    return list(executor.map(_analyze_state_worker, tasks))

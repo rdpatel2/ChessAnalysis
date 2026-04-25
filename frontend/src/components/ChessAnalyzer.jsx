@@ -1,16 +1,21 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Chessboard } from 'react-chessboard';
 import { Chess } from 'chess.js';
-import { ChevronLeft, ChevronRight, ArrowLeft, Loader2, Info } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, ArrowLeft, Loader2, Info } from 'lucide-react';
 
 export default function ChessAnalyzer({ game, username, onBack }) {
   const VISIBLE_MOVE_ROWS = 10;
+  const MIN_DEPTH = 1;
+  const MAX_DEPTH = 20;
 
   const [currentMoveIndex, setCurrentMoveIndex] = useState(0);
   const [analysis, setAnalysis] = useState(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [customArrows, setCustomArrows] = useState([]);
   const [customSquareStyles, setCustomSquareStyles] = useState({});
+  const [analysisDepth, setAnalysisDepth] = useState(3);
+  const [isDepthMenuOpen, setIsDepthMenuOpen] = useState(false);
+  const depthMenuRef = useRef(null);
 
   const userIsWhite = game.white.toLowerCase() === username.toLowerCase();
   const userColor = userIsWhite ? 'white' : 'black';
@@ -65,7 +70,8 @@ export default function ChessAnalyzer({ game, username, onBack }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           fen: reviewStartState.fen,
-          user_color: userColor
+          user_color: userColor,
+          depth: analysisDepth
         })
       });
       if (response.ok) {
@@ -77,12 +83,25 @@ export default function ChessAnalyzer({ game, username, onBack }) {
     } finally {
       setIsAnalyzing(false);
     }
-  }, [hasUserMoveToReview, reviewStartState, userColor]);
+  }, [analysisDepth, hasUserMoveToReview, reviewStartState, userColor]);
 
   // Re-run analysis when stepping to a new position if it's user's turn
   useEffect(() => {
     analyzePosition();
   }, [analyzePosition]);
+
+  useEffect(() => {
+    const onOutsideClick = (event) => {
+      if (depthMenuRef.current && !depthMenuRef.current.contains(event.target)) {
+        setIsDepthMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', onOutsideClick);
+    return () => {
+      document.removeEventListener('mousedown', onOutsideClick);
+    };
+  }, []);
 
   // Update visual hints (arrows and square highlights)
   useEffect(() => {
@@ -154,8 +173,45 @@ export default function ChessAnalyzer({ game, username, onBack }) {
 
         <div className="controls">
           <div className="controls-header">
-            <h2 style={{ marginBottom: 4 }}>Game Analysis</h2>
-            <p className="game-meta">Playing as {userColor}</p>
+            <div className="controls-title-row">
+              <h2 style={{ marginBottom: 4 }}>Game Analysis</h2>
+              <div className="depth-control" ref={depthMenuRef}>
+                <button
+                  type="button"
+                  className="depth-trigger"
+                  onClick={() => setIsDepthMenuOpen((open) => !open)}
+                  aria-haspopup="listbox"
+                  aria-expanded={isDepthMenuOpen}
+                  aria-label={`Analysis depth ${analysisDepth}`}
+                >
+                  <span>Depth {analysisDepth}</span>
+                  <ChevronDown size={14} className={isDepthMenuOpen ? 'depth-caret open' : 'depth-caret'} />
+                </button>
+                {isDepthMenuOpen && (
+                  <div className="depth-menu" role="listbox" aria-label="Analysis depth">
+                  {Array.from({ length: MAX_DEPTH - MIN_DEPTH + 1 }, (_, i) => {
+                    const value = i + MIN_DEPTH;
+                    return (
+                      <button
+                        type="button"
+                        key={value}
+                        className={analysisDepth === value ? 'depth-option active' : 'depth-option'}
+                        onClick={() => {
+                          setAnalysisDepth(value);
+                          setIsDepthMenuOpen(false);
+                        }}
+                        role="option"
+                        aria-selected={analysisDepth === value}
+                      >
+                        {value}
+                      </button>
+                    );
+                  })}
+                  </div>
+                )}
+              </div>
+            </div>
+            <p className="game-meta">Playing as {userColor} • Depth {analysisDepth}</p>
           </div>
 
           <div className="evaluation-panel">
@@ -192,7 +248,7 @@ export default function ChessAnalyzer({ game, username, onBack }) {
             <h3>Moves</h3>
             <div
               className="move-history-list"
-              style={{ overflowY: 'auto', maxHeight: `${VISIBLE_MOVE_ROWS * 36}px` }}
+              style={{ overflowY: 'auto', maxHeight: `${VISIBLE_MOVE_ROWS * 50 - hasUserMoveToReview * 87}px` }}
             >
               {moveHistory.map((move, i) => {
                 if (i === 0) return null; // Skip 'Start'
